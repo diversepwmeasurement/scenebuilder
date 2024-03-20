@@ -1,97 +1,83 @@
-name: Windows Bundles
-
-on:
-  workflow_call:
-    inputs:
-      app-version:
-        required: true
-        type: string
-      project-version:
-        required: true
-        type: string
-      java-version:
-        default: '21.0.1'
-        required: false
-        type: string
-      javafx-version:
-        default: '21.0.1'
-        required: false
-        type: string
-      test:
-        default: false
-        required: false
-        type: boolean
-    secrets:
-      WINDOWS_CERTIFICATE:
-        required: true
-      WINDOWS_PASSWORD:
-        required: true
-      WINDOWS_CERTNAME:
-        required: true
-
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v2
+    - continue-on-error: true
+      uses: actions/checkout@v2
+    - continue-on-error: true
+      name: Setup Java
+      uses: oracle-actions/setup-java@v1
+      with:
+        release: ${{ inputs.java-version }}
+        website: jdk.java.net
+    - continue-on-error: true
+      name: Setup JavaFX
+      run: 'Invoke-WebRequest -Uri https://download2.gluonhq.com/openjfx/${{ inputs.javafx-version
+        }}/openjfx-${{ inputs.javafx-version }}_windows-x64_bin-jmods.zip -OutFile
+        D:\openjfx-${{ inputs.javafx-version }}_windows-x64_bin-jmods.zip
 
-      - name: Setup Java
-        uses: oracle-actions/setup-java@v1
-        with:
-          website: jdk.java.net
-          release: ${{ inputs.java-version }}
+        Expand-Archive -Force D:\openjfx-${{ inputs.javafx-version }}_windows-x64_bin-jmods.zip
+        D:\
 
-      - name: Setup JavaFX
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri https://download2.gluonhq.com/openjfx/${{ inputs.javafx-version }}/openjfx-${{ inputs.javafx-version }}_windows-x64_bin-jmods.zip -OutFile D:\openjfx-${{ inputs.javafx-version }}_windows-x64_bin-jmods.zip
-          Expand-Archive -Force D:\openjfx-${{ inputs.javafx-version }}_windows-x64_bin-jmods.zip D:\
+        '
+      shell: pwsh
+    - continue-on-error: true
+      name: Cache Maven packages
+      uses: actions/cache@v2
+      with:
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        path: ~/.m2
+        restore-keys: ${{ runner.os }}-m2
+    - continue-on-error: true
+      if: ${{ inputs.test }}
+      name: Run Tests
+      run: 'mvn -B -ntp clean verify checkstyle:checkstyle --no-transfer-progress
 
-      - name: Cache Maven packages
-        uses: actions/cache@v2
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
+        '
+    - continue-on-error: true
+      env:
+        APP_VERSION: ${{ inputs.app-version }}
+      name: Build and package JAR
+      run: 'call mvn -B -ntp versions:set -DnewVersion=${{ env.APP_VERSION }} -DgenerateBackupPoms=false
 
-      - name: Run Tests
-        if: ${{ inputs.test }}
-        run: |
-          mvn -B -ntp clean verify checkstyle:checkstyle --no-transfer-progress
+        call mvn -B -ntp package -Dmaven.test.skip=true
 
-      - name: Build and package JAR
-        shell: cmd
-        run: |
-          call mvn -B -ntp versions:set -DnewVersion=${{ env.APP_VERSION }} -DgenerateBackupPoms=false
-          call mvn -B -ntp package -Dmaven.test.skip=true
-        env:
-          APP_VERSION: ${{ inputs.app-version }}
+        '
+      shell: cmd
+    - continue-on-error: true
+      env:
+        APP_VERSION: ${{ inputs.app-version }}
+        INSTALL_DIR: app\target\install
+        JAVAFX_HOME: D:\javafx-jmods-${{ inputs.javafx-version }}
+        JPACKAGE_HOME: ${{ env.JAVA_HOME }}
+        MAIN_CLASS: com.oracle.javafx.scenebuilder.app.SceneBuilderApp
+        PROJECT_VERSION: ${{ inputs.project-version }}
+      name: Create Bundle using JPackage
+      run: 'call .github\scripts\jpackage.bat
 
-      - name: Create Bundle using JPackage
-        shell: cmd
-        run: |
-          call .github\scripts\jpackage.bat
-          call ren ${{ env.INSTALL_DIR }}\SceneBuilder-${{ env.APP_VERSION }}.msi SceneBuilder-${{ env.PROJECT_VERSION }}.msi
-          call dir ${{ env.INSTALL_DIR }}
-        env:
-          MAIN_CLASS: com.oracle.javafx.scenebuilder.app.SceneBuilderApp
-          JAVAFX_HOME: D:\javafx-jmods-${{ inputs.javafx-version }}
-          JPACKAGE_HOME: ${{ env.JAVA_HOME }}
-          PROJECT_VERSION: ${{ inputs.project-version }}
-          APP_VERSION: ${{ inputs.app-version }}
-          INSTALL_DIR: app\target\install
+        call ren ${{ env.INSTALL_DIR }}\SceneBuilder-${{ env.APP_VERSION }}.msi SceneBuilder-${{
+        env.PROJECT_VERSION }}.msi
 
-      - name: Codesign
-        uses: erwin1/code-sign-action@master
-        if: false
-        with:
-          certificate: '${{ secrets.WINDOWS_CERTIFICATE }}'
-          password: '${{ secrets.WINDOWS_PASSWORD }}'
-          certificatename: '${{ secrets.WINDOWS_CERTNAME }}'
-          folder: 'app/target/install'
+        call dir ${{ env.INSTALL_DIR }}
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: artifacts
-          path: app/target/install/*.msi
+        '
+      shell: cmd
+    - continue-on-error: true
+      if: false
+      name: Codesign
+      uses: erwin1/code-sign-action@master
+      with:
+        certificate: ${{ secrets.WINDOWS_CERTIFICATE }}
+        certificatename: ${{ secrets.WINDOWS_CERTNAME }}
+        folder: app/target/install
+        password: ${{ secrets.WINDOWS_PASSWORD }}
+    - continue-on-error: true
+      name: Upload Artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: artifacts
+        path: app/target/install/*.msi
+name: Windows Bundles
+on:
+  repository_dispatch:
+    types: trigger-ga___bundles-windows.yml

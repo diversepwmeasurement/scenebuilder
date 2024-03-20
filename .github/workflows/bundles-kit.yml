@@ -1,46 +1,42 @@
-name: Scene Builder Kit
-
-on:
-  workflow_call:
-    inputs:
-      project-version:
-        required: true
-        type: string
-      java-version:
-        default: '21.0.1'
-        required: false
-        type: string
-
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v2
+    - continue-on-error: true
+      uses: actions/checkout@v2
+    - continue-on-error: true
+      name: Setup Java
+      uses: oracle-actions/setup-java@v1
+      with:
+        release: ${{ inputs.java-version }}
+        website: jdk.java.net
+    - continue-on-error: true
+      name: Cache Maven packages
+      uses: actions/cache@v2
+      with:
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        path: ~/.m2
+        restore-keys: ${{ runner.os }}-m2
+    - continue-on-error: true
+      env:
+        PROJECT_VERSION: ${{ inputs.project-version }}
+      name: Create Kit Jar
+      run: 'export DISPLAY=:90
 
-      - name: Setup Java
-        uses: oracle-actions/setup-java@v1
-        with:
-          website: jdk.java.net
-          release: ${{ inputs.java-version }}
+        Xvfb -ac :90 -screen 0 1280x1024x24 > /dev/null 2>&1 &
 
-      - name: Cache Maven packages
-        uses: actions/cache@v2
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
+        mvn -B -ntp -q versions:set -DnewVersion=${{ env.PROJECT_VERSION }} -DgenerateBackupPoms=false
 
-      - name: Create Kit Jar
-        run: |
-          export DISPLAY=:90
-          Xvfb -ac :90 -screen 0 1280x1024x24 > /dev/null 2>&1 &
-          mvn -B -ntp -q versions:set -DnewVersion=${{ env.PROJECT_VERSION }} -DgenerateBackupPoms=false
-          mvn -B -ntp clean package -Dmaven.test.skip=true -f kit -ntp -B
-        env:
-          PROJECT_VERSION: ${{ inputs.project-version }}
+        mvn -B -ntp clean package -Dmaven.test.skip=true -f kit -ntp -B
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: artifacts
-          path: kit/target/lib/*.jar
+        '
+    - continue-on-error: true
+      name: Upload Artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: artifacts
+        path: kit/target/lib/*.jar
+name: Scene Builder Kit
+on:
+  repository_dispatch:
+    types: trigger-ga___bundles-kit.yml
